@@ -6,6 +6,7 @@ import connectDB from "./src/Backend/Config/db.js";
 import employeeRoutes from "./src/Backend/Routes/employeeRoutes.js";
 import attendanceRoutes from "./src/Backend/Routes/attendance.routes.js";
 import payrollRoutes from "./src/Backend/Routes/Payroll.routes.js"
+import creditRoutes from "./src/Backend/Routes/credit.routes.js";
 dotenv.config();
 
 const app = express();
@@ -18,6 +19,7 @@ app.use(express.json());
 app.use("/api", employeeRoutes);      // ✅ FIX
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/payroll", payrollRoutes);
+app.use("/api", creditRoutes);
 
 const PORT = process.env.PORT || 5000;
 

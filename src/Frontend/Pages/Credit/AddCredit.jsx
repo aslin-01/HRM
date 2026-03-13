@@ -175,6 +175,7 @@
 import React, { useState } from "react";
 import { FaArrowLeft } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
 const AddCredit = () => {
   const navigate = useNavigate();
@@ -188,15 +189,37 @@ const AddCredit = () => {
     payable: "",
   });
 
+  const calculatePayable = (totalValue, interestValue) => {
+    const principal = Number(totalValue);
+    const rate = Number(String(interestValue).replace("%", ""));
+
+    if (!Number.isFinite(principal) || !Number.isFinite(rate)) return "";
+
+    const payable = principal + (principal * rate) / 100;
+    // keep it simple for UI: 2 decimals max
+    return Number.isInteger(payable) ? String(payable) : payable.toFixed(2);
+  };
+
   const handleChange = (e) => {
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value,
+    const { name, value } = e.target;
+
+    setForm((prev) => {
+      const next = { ...prev, [name]: value };
+      // auto-calc payable from total + interest
+      if (name === "total" || name === "interest") {
+        next.payable = calculatePayable(
+          name === "total" ? value : prev.total,
+          name === "interest" ? value : prev.interest,
+        );
+      }
+      return next;
     });
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    const computedPayable = calculatePayable(form.total, form.interest);
 
     const newCredit = {
       name: form.agent,
@@ -204,12 +227,23 @@ const AddCredit = () => {
       due: form.dueDate,
       amount: form.total,
       interest: form.interest + "%",
-      total: form.total,
-      payable: form.payable,
+      // backend will also compute, but we send it for UI consistency
+      total: computedPayable,
+      payable: computedPayable,
       status: "unpaid",
     };
 
-    navigate("/credits", { state: newCredit });
+    const saveCredit = async () => {
+      try {
+        await axios.post("http://localhost:5000/api/credits", newCredit);
+        navigate("/credits");
+      } catch (error) {
+        console.error("Error saving credit:", error);
+        alert("Failed to save credit");
+      }
+    };
+
+    saveCredit();
   };
 
   return (
@@ -307,7 +341,7 @@ const AddCredit = () => {
                 type="number"
                 name="payable"
                 value={form.payable}
-                onChange={handleChange}
+                readOnly
                 className="w-full border p-2 rounded"
               />
             </div>
