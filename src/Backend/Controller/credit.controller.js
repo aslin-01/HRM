@@ -8,10 +8,7 @@ const parseDueDate = (credit) => {
   return d;
 };
 
-// Interest strategy (credit-only):
-// - Interest starts accruing AFTER due date
-// - Interest is calculated on remaining principalBalance only
-// - Rate is treated as "% per month" and prorated daily using 30-day month
+
 const applyOverdueInterest = async (credit, now = new Date()) => {
   const dueDate = parseDueDate(credit);
   if (!dueDate) return credit;
@@ -90,7 +87,7 @@ export const createCredit = async (req, res) => {
 
 export const getCredits = async (req, res) => {
   try {
-    const { search, fromDate, toDate } = req.query;
+  const { search, startDate, endDate } = req.query;
     const query = {};
 
     if (search) {
@@ -98,9 +95,9 @@ export const getCredits = async (req, res) => {
     }
 
     // received is stored as a date-string; we can do lexicographic range for yyyy-mm-dd safely
-    if (fromDate && toDate) {
-      query.received = { $gte: String(fromDate), $lte: String(toDate) };
-    }
+   if (startDate && endDate) {
+  query.received = { $gte: String(startDate), $lte: String(endDate) };
+}
 
     const credits = await Credit.find(query).sort({ createdAt: -1 });
 

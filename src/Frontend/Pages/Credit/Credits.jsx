@@ -16,7 +16,8 @@ const Credits = () => {
   const [credits, setCredits] = useState([]);
 
   const [showEditModal, setShowEditModal] = useState(false);
-
+const [startDate, setStartDate] = useState("");
+const [endDate, setEndDate] = useState("");
   const [selectedCredit, setSelectedCredit] = useState(null);
   const [paidAmount, setPaidAmount] = useState("");
 const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -32,10 +33,13 @@ const [showPaymentModal, setShowPaymentModal] = useState(false);
     }
   };
 
-  useEffect(() => {
+useEffect(() => {
+  if (startDate && endDate) {
+    fetchCredits({ startDate, endDate });
+  } else {
     fetchCredits();
-  }, []);
-
+  }
+}, [startDate, endDate]);
   const formatDate = (value) => {
     if (!value) return "-";
     // if it's already dd/mm/yyyy etc, just show it
@@ -109,8 +113,19 @@ const todayDate = () => {
           </div>
 
           <div className="flex gap-3">
-            <input type="date" className="border p-2 rounded" />
-            <input type="date" className="border p-2 rounded" />
+          <input
+  type="date"
+  value={startDate}
+  onChange={(e) => setStartDate(e.target.value)}
+  className="border p-2 rounded"
+/>
+
+          <input
+  type="date"
+  value={endDate}
+  onChange={(e) => setEndDate(e.target.value)}
+  className="border p-2 rounded"
+/>
 
             <input
               type="text"
@@ -180,7 +195,7 @@ const todayDate = () => {
                       className="text-blue-500 cursor-pointer"
                         onClick={() => {
                           setSelectedCredit(item);
-                          setShowEditModal(true);
+                        setShowEditModal(true);
                         }}
                     
                     />
