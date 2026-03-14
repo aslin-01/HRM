@@ -13,40 +13,40 @@ const applyOverdueInterest = async (credit, now = new Date()) => {
   const dueDate = parseDueDate(credit);
   if (!dueDate) return credit;
 
-  const ratePercent = Number(credit.interestRatePercent || 0);
-  if (ratePercent <= 0) return credit;
-
-  // Only apply after due date
+  // if not overdue, return
   if (now <= dueDate) return credit;
 
-  const start =
-    credit.lastInterestAppliedAt && credit.lastInterestAppliedAt > dueDate
-      ? credit.lastInterestAppliedAt
-      : dueDate;
+  // prevent applying multiple times
+  if (credit.lastInterestAppliedAt) return credit;
 
-  const msPerDay = 1000 * 60 * 60 * 24;
-  const days = Math.floor((now.getTime() - start.getTime()) / msPerDay);
-  if (days <= 0) return credit;
+  const balance = Number(credit.balancePayable || credit.payable || 0);
+  const originalRate = Number(credit.originalInterestRate || 0);
 
-  const principal = Math.max(0, Number(credit.principalBalance || 0));
-  if (principal <= 0) {
-    credit.lastInterestAppliedAt = now;
-    await credit.save();
-    return credit;
-  }
+  if (balance <= 0 || originalRate <= 0) return credit;
 
-  const dailyRate = ratePercent / 100 / 30;
-  const interestToAdd = principal * dailyRate * days;
+  // new rate after due date
+  const newRate = originalRate * 2;
 
-  // round to 2 decimals for money safety
-  const rounded = Math.round(interestToAdd * 100) / 100;
+  // calculate only the extra interest
+  const extraRate = newRate - originalRate;
+  const interestAmount = (balance * extraRate) / 100;
 
-  credit.interestAccrued = Math.max(0, Number(credit.interestAccrued || 0) + rounded);
-  credit.lastInterestAppliedAt = now;
+  const newTotal = balance + interestAmount;
+
+  // update credit values
+  credit.interestRatePercent = newRate;          // doubled rate
+  credit.interest = `${newRate}%`;              // display
+  credit.balancePayable = newTotal;             // balance including extra interest
+  credit.payable = newTotal;                    // payable including extra interest
+  credit.total = newTotal;                      // total including extra interest
+
+  credit.lastInterestAppliedAt = now;           // mark interest applied
 
   await credit.save();
+
   return credit;
 };
+
 
 export const createCredit = async (req, res) => {
   try {
@@ -66,16 +66,23 @@ export const createCredit = async (req, res) => {
         .json({ message: "amount, total and payable must be valid numbers" });
     }
 
-    const credit = await Credit.create({
-      name,
-      received,
-      due,
-      amount: parsedAmount,
-      interest: String(interest ?? ""),
-      // principal starts as amount; derived totals are computed in model hook
-      principalBalance: parsedAmount,
-      status: req.body.status || "unpaid",
-    });
+const rate = Number(String(interest).replace("%",""));
+
+const credit = await Credit.create({
+  name,
+  received,
+  due,
+  amount: parsedAmount,
+
+  interestRatePercent: rate,   // current rate
+  originalInterestRate: rate,  // original rate (NEVER CHANGE)
+
+  interest: `${rate}%`,
+  principalBalance: parsedAmount,
+  balancePayable: parsedAmount,
+  payable: parsedAmount
+});
+
 
     return res.status(201).json(credit);
   } catch (error) {
@@ -84,6 +91,8 @@ export const createCredit = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+
 
 export const getCredits = async (req, res) => {
   try {
@@ -99,23 +108,27 @@ export const getCredits = async (req, res) => {
   query.received = { $gte: String(startDate), $lte: String(endDate) };
 }
 
-    const credits = await Credit.find(query).sort({ createdAt: -1 });
+const credits = await Credit.find(query).sort({ createdAt: -1 });
 
-    // Apply overdue interest lazily so UI always sees up-to-date totals
-    const now = new Date();
-    const updated = [];
-    for (const c of credits) {
-      // only touch docs that could be overdue
-      if (c?.due && c?.principalBalance > 0) {
-        await applyOverdueInterest(c, now);
-      }
-      updated.push(c);
-    }
-    return res.json(credits);
+const now = new Date();
+const updated = [];
+
+for (const c of credits) {
+  if (c?.due && c?.principalBalance > 0) {
+    await applyOverdueInterest(c, now);
+  }
+  updated.push(c);
+}
+
+return res.json(updated);
+
+
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
+
+
 
 export const getCredit = async (req, res) => {
   try {
@@ -128,6 +141,8 @@ export const getCredit = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+
 
 export const addCreditPayment = async (req, res) => {
   try {
@@ -200,3 +215,161 @@ export const addCreditPayment = async (req, res) => {
   }
 };
 
+
+
+
+
+// export const updateOverdueCredit = async (req, res) => {
+//   try {
+//     const credit = await Credit.findById(req.params.id);
+
+//     if (!credit) {
+//       return res.status(404).json({ message: "Credit not found" });
+//     }
+
+//     credit.interest = req.body.interest;
+//     credit.payable = req.body.payable;
+//     credit.balancePayable = req.body.balancePayable;
+//     credit.total = req.body.balancePayable;
+
+//     await credit.save();
+
+//     res.json(credit);
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
+
+
+
+// import Credit from "../Models/Credit.js";
+// import Credit from "../Models/Credit.js";
+
+// /**
+//  * Applies overdue interest to a credit if past due date
+//  * and saves it immediately in the backend.
+//  */
+// export const applyOverdueInterest = async (credit, now = new Date()) => {
+//   if (!credit || !credit.due) return credit;
+
+//   const dueDate = new Date(credit.due);
+//   if (now <= dueDate) return credit; // not overdue
+
+//   // Already applied interest? skip
+//   if (credit.lastInterestAppliedAt) return credit;
+
+//   const balance = Number(credit.balancePayable || credit.payable || 0);
+//   const originalRate = Number(credit.originalInterestRate || credit.interestRatePercent || 0);
+
+//   if (balance <= 0 || originalRate <= 0) return credit;
+
+//   // Double interest after due date
+//   const newRate = originalRate * 2;
+//   const extraRate = newRate - originalRate;
+
+//   const interestAmount = (balance * extraRate) / 100;
+//   const newTotal = balance + interestAmount;
+
+//   // Update credit
+//   credit.interestRatePercent = newRate;
+//   credit.interest = `${newRate}%`;
+//   credit.balancePayable = newTotal;
+//   credit.payable = newTotal;
+//   credit.total = newTotal;
+//   credit.lastInterestAppliedAt = now;
+
+//   // Save in backend immediately
+//   await credit.save();
+
+//   return credit;
+// };
+
+// // Create new credit
+// export const createCredit = async (req, res) => {
+//   try {
+//     const { name, received, due, amount, interest } = req.body;
+//     if (!name || !received || !due) return res.status(400).json({ message: "Required fields missing" });
+
+//     const principal = Number(amount ?? 0);
+//     const rate = Number(String(interest ?? "0").replace("%",""));
+
+//     const credit = await Credit.create({
+//       name,
+//       received,
+//       due,
+//       amount: principal,
+//       interest: `${rate}%`,
+//       originalInterestRate: rate,
+//       interestRatePercent: rate,
+//       principalBalance: principal,
+//       balancePayable: principal,
+//       payable: principal,
+//       total: principal,
+//       status: "unpaid",
+//     });
+
+//     return res.status(201).json(credit);
+//   } catch (err) {
+//     console.error("createCredit error:", err);
+//     return res.status(500).json({ message: err.message });
+//   }
+// };
+
+// // Get all credits (automatically apply overdue interest)
+// export const getCredits = async (req, res) => {
+//   try {
+//     const { search, startDate, endDate } = req.query;
+//     const query = {};
+//     if (search) query.name = { $regex: search, $options: "i" };
+//     if (startDate && endDate) query.received = { $gte: startDate, $lte: endDate };
+
+//     const credits = await Credit.find(query).sort({ createdAt: -1 });
+
+//     const now = new Date();
+//     for (const credit of credits) {
+//       await applyOverdueInterest(credit, now);
+//     }
+
+//     return res.json(credits);
+//   } catch (err) {
+//     return res.status(500).json({ message: err.message });
+//   }
+// };
+
+// // Add a payment
+// export const addCreditPayment = async (req, res) => {
+//   try {
+//     const { amountPaid, paidAt } = req.body;
+//     const paid = Number(amountPaid);
+//     if (!paid || paid <= 0) return res.status(400).json({ message: "amountPaid must be > 0" });
+
+//     const credit = await Credit.findById(req.params.id);
+//     if (!credit) return res.status(404).json({ message: "Credit not found" });
+
+//     // Apply overdue interest automatically before payment
+//     const paymentTime = paidAt ? new Date(paidAt) : new Date();
+//     await applyOverdueInterest(credit, paymentTime);
+
+//     const balance = Number(credit.balancePayable || credit.payable || 0);
+//     if (paid > balance) return res.status(400).json({ message: "Amount exceeds balance" });
+
+//     // Reduce balance and update totals
+//     const newBalance = balance - paid;
+//     credit.totalPaid = (Number(credit.totalPaid) || 0) + paid;
+//     credit.balancePayable = newBalance;
+//     credit.payable = newBalance;
+//     credit.total = newBalance;
+//     credit.status = newBalance <= 0 ? "paid" : "unpaid";
+
+//     credit.payments.push({
+//       paidAt: paymentTime,
+//       amountPaid: paid,
+//       balanceAfter: newBalance,
+//     });
+
+//     await credit.save();
+//     return res.json(credit);
+//   } catch (err) {
+//     return res.status(500).json({ message: err.message });
+//   }
+// };

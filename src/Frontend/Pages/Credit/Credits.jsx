@@ -67,36 +67,177 @@ const todayDate = () => {
 };
 
 
-  const savePayment = async () => {
-    if (!paidAmount) {
-      alert("Enter payment amount");
-      return;
-    }
+const applyOverdueToCredit = (credit) => {
+  if (!credit || getDueWarning(credit) !== "passed") return credit;
 
-    const paid = Number(paidAmount);
-    const balance = balancePayable(selectedCredit);
+  const calc = calculateOverdueAmount(credit);
+
+  return {
+    ...credit,
+    balancePayable: calc.newTotal,
+    payable: calc.newTotal,
+    total: calc.newTotal,
+    interest: `${calc.newRate}%`,
+  };
+};
+
+  // const savePayment = async () => {
+  //   if (!paidAmount) {
+  //     alert("Enter payment amount");
+  //     return;
+  //   }
+
+  //   const paid = Number(paidAmount);
+  //   const balance = balancePayable(selectedCredit);
+
+  //   if (paid > balance) {
+  //     alert("Amount cannot be greater than balance");
+  //     return;
+  //   }
+
+  //   try {
+  //     const res = await axios.post(
+  //       `http://localhost:5000/api/credits/${selectedCredit._id}/payments`,
+  //       { amountPaid: paid, paidAt: new Date().toISOString() },
+  //     );
+
+  //     // refresh list + update selected credit snapshot
+  //     await fetchCredits();
+  //     setSelectedCredit(res.data);
+  //     setShowPaymentModal(false);
+  //     setPaidAmount("");
+  //   } catch (error) {
+  //     console.error("Error saving payment:", error);
+  //     alert("Failed to save payment");
+  //   }
+  // };
+
+
+const savePayment = async () => {
+  if (!paidAmount) {
+    alert("Enter payment amount");
+    return;
+  }
+
+  const paid = Number(paidAmount);
+  if (paid <= 0) {
+    alert("Amount must be greater than 0");
+    return;
+  }
+
+  if (!selectedCredit) {
+    alert("No credit selected");
+    return;
+  }
+
+  try {
+    // 1️⃣ Apply overdue logic locally for display
+    const creditToPay = applyOverdueToCredit(selectedCredit);
+
+    const balance = Number(
+      creditToPay.balancePayable ?? creditToPay.payable ?? 0
+    );
 
     if (paid > balance) {
       alert("Amount cannot be greater than balance");
       return;
     }
 
-    try {
-      const res = await axios.post(
-        `http://localhost:5000/api/credits/${selectedCredit._id}/payments`,
-        { amountPaid: paid, paidAt: new Date().toISOString() },
-      );
+    // 2️⃣ Send payment to backend (backend updates totals, status, and interest)
+    const res = await axios.post(
+      `http://localhost:5000/api/credits/${selectedCredit._id}/payments`,
+      {
+        amountPaid: paid,
+        paidAt: new Date().toISOString(),
+      }
+    );
 
-      // refresh list + update selected credit snapshot
-      await fetchCredits();
-      setSelectedCredit(res.data);
-      setShowPaymentModal(false);
-      setPaidAmount("");
-    } catch (error) {
-      console.error("Error saving payment:", error);
-      alert("Failed to save payment");
-    }
+    const updatedCredit = res.data;
+
+    // 3️⃣ Refresh credits list
+    await fetchCredits();
+
+    // 4️⃣ Update selected credit state in modal
+    setSelectedCredit(updatedCredit);
+
+    // 5️⃣ Close payment modal and clear input
+    setShowPaymentModal(false);
+    setPaidAmount("");
+  } catch (error) {
+    console.error("Error saving payment:", error);
+    alert("Failed to save payment");
+  }
+};
+
+
+  const getDueWarning = (credit) => {
+  if (!credit?.due) return null;
+
+  const today = new Date();
+  const due = new Date(credit.due);
+
+  const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 5 && diffDays > 0) {
+    return `⚠ Payment due in ${diffDays} day(s). Interest will double after due date.`;
+  }
+
+  if (diffDays <= 0) {
+    return "passed";
+  }
+
+  return null;
+};
+
+
+
+
+const calculateOverdueAmount = (credit) => {
+
+  const balance = Number(credit.balancePayable || credit.payable || 0);
+
+  // take original interest from backend string
+  const oldRate = Number(String(credit.interest || "0").replace("%",""));
+
+  // double it
+  const newRate = oldRate * 2;
+
+  // only extra interest
+  const extraRate = newRate - oldRate;
+
+  const interestAmount = (balance * extraRate) / 100;
+
+  const newTotal = balance + interestAmount;
+
+  return {
+    balance,
+    oldRate,
+    newRate,
+    newTotal
   };
+};
+
+const parseInterest = (value) => {
+  if (!value) return 0;
+  return Number(String(value).replace("%", ""));
+};
+
+// const updateOverdueCredit = async (credit) => {
+//   const calc = calculateOverdueAmount(credit);
+
+//   try {
+//     await axios.put(`http://localhost:5000/api/credits/${credit._id}/overdue`, {
+//       interest: `${calc.newRate}%`,
+//       payable: calc.newTotal,
+//       balancePayable: calc.newTotal,
+//     });
+
+//     await fetchCredits();
+//   } catch (err) {
+//     console.error("Failed to update overdue credit", err);
+//   }
+// };
+
   return (
     <div className="p-6">
       <div className="border rounded-xl border-yellow-400 p-5 bg-white">
@@ -193,10 +334,14 @@ const todayDate = () => {
 
                     <FaEye
                       className="text-blue-500 cursor-pointer"
-                        onClick={() => {
-                          setSelectedCredit(item);
-                        setShowEditModal(true);
-                        }}
+                    onClick={() => {
+  setSelectedCredit(item);
+  setShowEditModal(true);
+
+  if (getDueWarning(item) === "passed") {
+    // updateOverdueCredit(item);
+  }
+}}
                     
                     />
 
@@ -233,72 +378,85 @@ const todayDate = () => {
 
       {/* ================= EDIT AMOUNT MODAL ================= */}
 
-      {showEditModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50">
-          <div className="bg-white w-[900px] rounded-lg border-2 border-yellow-400 p-6">
-            {/* Title */}
-            <h2 className="text-lg font-semibold">Credit Details</h2>
+{/* ================= EDIT AMOUNT MODAL ================= */}
+{showEditModal && selectedCredit && (
+  <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50">
+    <div className="bg-white w-[900px] rounded-lg border-2 border-yellow-400 p-6">
+      {/* Title */}
+      <h2 className="text-lg font-semibold">Credit Details</h2>
+      <hr className="my-4" />
 
-            <hr className="my-4" />
+      {(() => {
+        const today = new Date();
+        const due = new Date(selectedCredit.due);
+
+        // Calculate days left
+        const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+
+        // Clone credit for modal updates
+        let updatedCredit = { ...selectedCredit };
+
+        // ====== 5-DAY WARNING ======
+        let fiveDayNotification = null;
+        if (diffDays <= 5 && diffDays > 0) {
+          fiveDayNotification = (
+            <div className="bg-yellow-100 border-l-4 border-yellow-400 text-yellow-800 p-3 mb-4 text-sm">
+              ⚠ Payment due in {diffDays} day(s). Interest will double after due date.
+            </div>
+          );
+        }
+
+        // ====== OVERDUE CALCULATION ======
+        const isOverdue = diffDays <= 0;
+        if (isOverdue) {
+          const calc = calculateOverdueAmount(selectedCredit);
+
+          updatedCredit.payable = calc.newTotal;
+          updatedCredit.balancePayable = calc.newTotal;
+          updatedCredit.interest = `${calc.newRate}%`;
+
+          if (!selectedCredit.lastInterestAppliedAt) {
+            axios
+              .put(`http://localhost:5000/api/credits/${selectedCredit._id}/overdue`, {
+                payable: calc.newTotal,
+                balancePayable: calc.newTotal,
+                interest: `${calc.newRate}%`,
+                lastInterestAppliedAt: new Date().toISOString(),
+              })
+              .then(() => {
+                fetchCredits();
+                setSelectedCredit((prev) => ({ ...prev, ...updatedCredit }));
+              })
+              .catch((err) => console.error("Failed to update overdue credit:", err));
+          }
+        }
+
+        return (
+          <>
+            {/* ====== 5-DAY NOTIFICATION ====== */}
+            {fiveDayNotification}
 
             {/* Top Details */}
             <div className="grid grid-cols-2 gap-10 text-sm">
               {/* Left */}
               <div className="space-y-3">
-                <p>
-                  <span className="font-semibold">Name:</span>{" "}
-                  {selectedCredit?.name}
-                </p>
-
-                <p>
-                  <span className="font-semibold">Received Date:</span>{" "}
-                  {selectedCredit?.received}
-                </p>
-
-                <p>
-                  <span className="font-semibold">Next Due Date:</span>{" "}
-                  {selectedCredit?.due}
-                </p>
-
-                <p>
-                  <span className="font-semibold">Amount Received:</span> ₹
-                  {selectedCredit?.amount}
-                </p>
-
-                <p>
-                  <span className="font-semibold">Rate of Interest:</span>{" "}
-                  {selectedCredit?.interest}
-                </p>
+                <p><span className="font-semibold">Name:</span> {updatedCredit.name}</p>
+                <p><span className="font-semibold">Received Date:</span> {formatDate(updatedCredit.received)}</p>
+                <p><span className="font-semibold">Next Due Date:</span> {formatDate(updatedCredit.due)}</p>
+                <p><span className="font-semibold">Amount Received:</span> ₹{updatedCredit.amount}</p>
+                <p><span className="font-semibold">Rate of Interest:</span> {updatedCredit.interest}</p>
               </div>
 
               {/* Right */}
               <div className="space-y-3">
-                <p>
-                  <span className="font-semibold">Total Payable Amount:</span>
-                  <span className="text-red-500 ml-2">
-                    ₹{totalPayable(selectedCredit)}
-                  </span>
-                </p>
-
-                <p>
-                  <span className="font-semibold">Total Paid Amount:</span>
-                  <span className="text-green-600 ml-2">
-                    ₹{totalPaid(selectedCredit)}
-                  </span>
-                </p>
-
-                <p>
-                  <span className="font-semibold">Balance Payable Amount:</span>
-                  <span className="text-red-500 ml-2">
-                    ₹{balancePayable(selectedCredit)}
-                  </span>
-                </p>
+                <p><span className="font-semibold">Total Payable Amount:</span> <span className="text-red-500 ml-2">₹{updatedCredit.payable}</span></p>
+                <p><span className="font-semibold">Total Paid Amount:</span> <span className="text-green-600 ml-2">₹{updatedCredit.totalPaid || 0}</span></p>
+                <p><span className="font-semibold">Balance Payable Amount:</span> <span className="text-red-500 ml-2">₹{updatedCredit.balancePayable}</span></p>
               </div>
             </div>
 
             {/* Payment History */}
             <h3 className="mt-6 font-semibold">Payment History</h3>
-
             <div className="border border-yellow-400 rounded-md mt-3">
               <table className="w-full text-sm">
                 <thead className="border-b bg-gray-50">
@@ -309,10 +467,9 @@ const todayDate = () => {
                     <th>Amount Balance</th>
                   </tr>
                 </thead>
-
                 <tbody>
-                  {selectedCredit?.payments?.length > 0 ? (
-                    selectedCredit.payments.map((p, i) => (
+                  {updatedCredit.payments?.length > 0 ? (
+                    updatedCredit.payments.map((p, i) => (
                       <tr key={i} className="border-b last:border-b-0">
                         <td className="p-3">{i + 1}</td>
                         <td>{formatDate(p.paidAt)}</td>
@@ -322,49 +479,57 @@ const todayDate = () => {
                     ))
                   ) : (
                     <tr>
-                      <td
-                        colSpan="4"
-                        className="text-center py-4 text-gray-400"
-                      >
-                        No Payment History
-                      </td>
+                      <td colSpan="4" className="text-center py-4 text-gray-400">No Payment History</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
 
+            {/* ====== OVERDUE PANEL (SHOWN ONLY AFTER DUE DATE) ====== */}
+            {isOverdue && (
+              <div className="mt-4 text-red-600 text-sm font-medium border-t pt-3">
+                <p>⚠ Due date passed. Interest updated.</p>
+                <p>Balance Amount : ₹{calculateOverdueAmount(selectedCredit).balance}</p>
+                <p>Old Interest Rate : {calculateOverdueAmount(selectedCredit).oldRate}%</p>
+                <p>New Interest Rate : {calculateOverdueAmount(selectedCredit).newRate}%</p>
+                <p className="font-semibold">New Payable Amount : ₹{calculateOverdueAmount(selectedCredit).newTotal}</p>
+              </div>
+            )}
+
             {/* Add Payment */}
-            {selectedCredit?.status !== "paid" && (
-  <div className="flex justify-end mt-3">
-             <button
- onClick={() => {
-  setPaidAmount("");
-  setShowPaymentModal(true);
-}}
-  className="text-blue-600 text-sm font-medium"
->
-  + Add Payment
-</button>
-          </div>
-)}
+            {updatedCredit.status !== "paid" && (
+              <div className="flex justify-end mt-3">
+                <button
+                  onClick={() => {
+                    setPaidAmount("");
+                    setShowPaymentModal(true);
+                  }}
+                  className="text-blue-600 text-sm font-medium"
+                >
+                  + Add Payment
+                </button>
+              </div>
+            )}
 
             {/* Footer */}
             <div className="flex justify-end mt-6">
               <button
-              onClick={() => {
-  setShowEditModal(false);
-  setShowPaymentModal(false);
-}}
+                onClick={() => {
+                  setShowEditModal(false);
+                  setShowPaymentModal(false);
+                }}
                 className="text-red-500"
               >
                 Discard
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
+          </>
+        );
+      })()}
+    </div>
+  </div>
+)}
 
 
       {showPaymentModal && (
