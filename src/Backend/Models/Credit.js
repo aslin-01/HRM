@@ -21,7 +21,18 @@ const creditSchema = new mongoose.Schema(
 
     // UI input (keep field name), e.g. "10%"
     interest: { type: String, required: true },
+    
+oldInterestRate: {
+  type: Number,
+},
 
+newInterestRate: {
+  type: Number,
+},
+
+lastInterestAppliedAt: {
+  type: Date,
+},
     // normalized numeric interest rate
     interestRatePercent: { type: Number, required: true, min: 0 },
 
