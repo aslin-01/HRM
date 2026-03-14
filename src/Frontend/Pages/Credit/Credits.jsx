@@ -616,7 +616,7 @@ const Credits = () => {
                           Balance Payable Amount:
                         </span>{" "}
                         <span className="text-red-500 ml-2">
-                          ₹{calc.latestAmount - (updatedCredit.totalPaid || 0)}
+                         ₹{calc.latestAmount}
                         </span>
                       </p>
                     </div>
@@ -653,7 +653,7 @@ const Credits = () => {
                                   <td className="p-3">{i + 1}</td>
                                   <td>{formatDate(p.paidAt)}</td>
                                   <td>₹{p.amountPaid}</td>
-                                  <td>₹{balance.toFixed(2)}</td>
+                                  <td>₹{calc.latestAmount}</td>
                                 </tr>
                               );
                             });
