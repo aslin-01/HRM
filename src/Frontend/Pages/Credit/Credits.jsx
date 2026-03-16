@@ -584,6 +584,7 @@ const Credits = () => {
                         <span className="font-semibold">Next Due Date:</span>{" "}
                         {formatDate(updatedCredit.due)}
                       </p>
+                      <p></p>
                       <p>
                         <span className="font-semibold">Amount Received:</span>{" "}
                         ₹{updatedCredit.amount}
